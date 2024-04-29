@@ -1,3 +1,3 @@
-module fatgo/callwheel/m/v2
+module fatgo/callwheel
 
-go 1.21.3
+go 1.21

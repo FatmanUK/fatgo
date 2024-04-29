@@ -1,3 +1,3 @@
-module fatgo/serialisers/m/v2
+module fatgo/serialisers
 
-go 1.21.3
+go 1.21
