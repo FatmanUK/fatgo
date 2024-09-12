@@ -6,8 +6,12 @@ import (
 	"strings"
 )
 
-func BuildUsageString(uses []string, opts map[string]string) string {
+func BuildUsageString(uses []string, opts map[string]string, arg0 *string) string {
 	base := path.Base(os.Args[0])
+	if arg0 != nil {
+		base = path.Base(*arg0)
+	}
+
 	// Add some defaults
 	uses = append(uses, "-h | --help")
 	uses = append(uses, "-v | --version")
