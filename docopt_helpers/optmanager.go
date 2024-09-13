@@ -43,6 +43,20 @@ func (re OptManager) AddPattern(pattern string, refs []Opt) OptManager {
 	return re
 }
 
+func (re OptManager) GetBool(d docopt.Opts, r rune) bool {
+	small := "-" + string(r)
+	large := "--" + re.Opts[r].large
+	chk1, err1 := d.Bool(small)
+	if err != nil {
+		panic("wtf1")
+	}
+	chk2, err2 := d.Bool(large)
+	if err != nil {
+		panic("wtf2")
+	}
+	return chk1 || chk2
+}
+
 func (re OptManager) LongestKey() string {
 	lk := ""
 	for _, opt := range re.Opts {
