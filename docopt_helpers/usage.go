@@ -1,12 +1,13 @@
 package docopt_helpers
 
 import (
+	"os"
 	"path"
 	"strings"
 )
 
-func BuildUsageString(uses []string, opts map[string]string, arg0 *string) string {
-	base := path.Base(*arg0)
+func BuildUsageString(uses []string, opts map[string]string) string {
+	base := path.Base(os.Args[0])
 
 	// Add some defaults
 	uses = append(uses, "-h | --help")
