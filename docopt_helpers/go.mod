@@ -1,3 +1,3 @@
-module docopt_helpers
+module github.com/FatmanUK/fatgo/docopt_helpers
 
 go 1.21
