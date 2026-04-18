@@ -1,97 +1,154 @@
 package serialisers
 
 import (
+	"bytes"
 	"testing"
-	"encoding/base64"
+	"reflect"
 )
 
-type Config struct {
-	version float32
-	secret string
-	keys string
-	wisp string
-	bin_env string
-	bin_agent string
-	bin_add string
+type Tester struct {
+	i32a int32
+	i32b int32
+	i32c int32
+	i32d int32
+	i64a int64
+	i64b int64
+	u32a uint32
+	u32b uint32
+	u64a uint64
+	u64b uint64
+	f32a float32
+	f32b float32
+	f64a float64
+	f64b float64
+	s1 string
+	s2 string
+	hm1 Hashmap
+	sl1 Stringlist
 }
 
-// TODO Improve this. Doesn't test all serialise functions.
-func (re *Config) serialise(s Serialiser) {
-	s.IoF(&re.version)
-	s.IoS(&re.secret)
-	s.IoS(&re.keys)
-	s.IoS(&re.wisp)
-	s.IoS(&re.bin_env)
-	s.IoS(&re.bin_agent)
-	s.IoS(&re.bin_add)
+func (re *Tester) serialise(s Serialiser) {
+	s.IoInt32(&re.i32a)
+	s.IoInt32(&re.i32b)
+	s.IoInt32(&re.i32c)
+	s.IoInt32(&re.i32d)
+	s.IoInt64(&re.i64a)
+	s.IoInt64(&re.i64b)
+	s.IoUint32(&re.u32a)
+	s.IoUint32(&re.u32b)
+	s.IoUint64(&re.u64a)
+	s.IoUint64(&re.u64b)
+	s.IoFloat32(&re.f32a)
+	s.IoFloat32(&re.f32b)
+	s.IoFloat64(&re.f64a)
+	s.IoFloat64(&re.f64b)
+	s.IoString(&re.s1)
+	s.IoString(&re.s2)
+	s.IoHashmap(&re.hm1)
+	s.IoStringlist(&re.sl1)
 }
 
-const test_data = "PkzMzQAAABF2YXVsdHMvc2VjcmV0LnR4dAAAAA92YXVsdHMv" +
-                  "a2V5cy55bWwAAAASL2Rldi9zaG0vd2lzcC5iYXNoAAAADC91" +
-                  "c3IvYmluL2VudgAAABIvdXNyL2Jpbi9zc2gtYWdlbnQAAAAQ" +
-                  "L3Vzci9iaW4vc3NoLWFkZA=="
-/*
-Decodes to:
-00000000: 3e4c cccd 0000 0011 7661 756c 7473 2f73  >L......vaults/s
-00000010: 6563 7265 742e 7478 7400 0000 0f76 6175  ecret.txt....vau
-00000020: 6c74 732f 6b65 7973 2e79 6d6c 0000 0012  lts/keys.yml....
-00000030: 2f64 6576 2f73 686d 2f77 6973 702e 6261  /dev/shm/wisp.ba
-00000040: 7368 0000 000c 2f75 7372 2f62 696e 2f65  sh..../usr/bin/e
-00000050: 6e76 0000 0012 2f75 7372 2f62 696e 2f73  nv..../usr/bin/s
-00000060: 7368 2d61 6765 6e74 0000 0010 2f75 7372  sh-agent..../usr
-00000070: 2f62 696e 2f73 7368 2d61 6464            /bin/ssh-add
-*/
+func testSizer() (uint32, Tester) {
+	var size uint32 = 0
+	hm := make(Hashmap)
+	hm["team"] = "SysAdmins"
+	hm["key"] = "FLB-51937"
+	var sl []string
+	sl = append(sl, "test1")
+	sl = append(sl, "test2")
+	tr := Tester{
+		84, 69, 83, 84,
+		-23548, -69375,
+		12, 24, 4734, 2756,
+		3.14, -1.2, -3.6, 3.1415926585,
+		"var e byte = re.Array[re.index",
+		" + uint64(add + (4 * mul))]",
+		hm,
+		sl,
+	}
+	sz := Sizer{}.Init(&size)
+	tr.serialise(&sz)
+	return size, tr
+}
 
-func decode_test_data() ([]byte, error) {
-	// decode test data
-	b := base64.StdEncoding
-	rawBytes, err := b.DecodeString(test_data)
-	return rawBytes, err
+func testSaver(tr Tester, ob *bytes.Buffer, size uint32) []byte {
+	sv := Saver{}.Init(&size)
+	tr.serialise(&sv)
+	(*ob).Write(sv.Array)
+	return sv.Array
+}
+
+func testLoader(tr Tester, ob *bytes.Buffer, size uint32, svArray *[]byte) (int, bool, []byte, Tester) {
+	ld := Loader{}.Init(&size)
+	n, err := (*ob).Read(ld.Array)
+	var trLoader Tester
+	trLoader.serialise(&ld)
+	(*ob).Reset()
+	(*ob).Write(ld.Array)
+	return n, (err == nil), ld.Array, trLoader
+}
+
+func TestSizer(t *testing.T) {
+	size, _ := testSizer()
+	t.Logf("Sized test struct at %d bytes.", size)
+}
+
+func TestSaver(t *testing.T) {
+	size, tr := testSizer()
+	t.Logf("Sized test struct at %d bytes.", size)
+	var outBuffer bytes.Buffer
+	_ = testSaver(tr, &outBuffer, size)
+	t.Logf("Buffer: %q", outBuffer.String())
 }
 
 func TestLoader(t *testing.T) {
-	rawBytes, err := decode_test_data()
-	if err != nil {
-		t.Fatal("Failed decoding data blob.")
+	size, tr := testSizer()
+	t.Logf("Sized test struct at %d bytes.", size)
+	var outBuffer bytes.Buffer
+	svArray := testSaver(tr, &outBuffer, size)
+	t.Logf("Buffer: %q", outBuffer.String())
+	numBytesCopied, isCopiedOk, ldArray, trLoader := testLoader(tr, &outBuffer, size, &svArray)
+	if isCopiedOk {
+		t.Logf("No error while copying Loader array")
+	} else {
+		t.Errorf("Error thrown while copying Loader array")
 	}
-	data := Config{}
-	// Should the buffer be the responsibility of the Model object? Surely the Serialiser object?
-	data.serialise(&Loader{Array: &rawBytes})
-	//zero_buffer(&rawBytes)
-	if data.version != 0.2 {
-		t.Error("IoF returned wrong value")
+	if uint32(numBytesCopied) == size {
+		t.Logf("Correctly copied %d bytes.", numBytesCopied)
+	} else {
+		errStr := "Read wrong number of bytes."
+		errStr += " Wanted %d, got %d."
+		t.Errorf(errStr, size, numBytesCopied)
 	}
-	if data.secret != "vaults/secret.txt" {
-		t.Error("IoS returned wrong value")
+	if reflect.DeepEqual(svArray, ldArray) {
+		t.Logf("Saver and Loader arrays are identical.")
+	} else {
+		errStr := "Saver and Loader arrays differ."
+		t.Errorf("%s", errStr)
+	}
+	t.Logf("Buffer: %q", outBuffer.String())
+	if reflect.DeepEqual(tr, trLoader) {
+		t.Logf("Post-Load data identical to Pre-Save data.")
+	} else {
+		errStr := "Post-Load data and Pre-Save data differ."
+		t.Errorf("%s", errStr)
 	}
 }
 
-/*
-func TestSaver(t *testing.T) {
-	rawBytes, err := decode_test_data()
-	if err != nil {
-		t.Fatal("Failed decoding data blob.")
+func TestIsLittleEndian(t *testing.T) {
+	// this is going to be run on LE systems only
+	if isLittleEndian() {
+		t.Logf("Endianness correctly detected.")
+	} else {
+		errStr := "Endianness detection failed."
+		t.Errorf("%s", errStr)
 	}
-
-
-func (re *Control) save_config() {
-	re.view.log(
-		DEBUG,
-		fmt.Sprintf("Saving config: %s", re.conf_name))
-	var buf_size uint64 = 0
-	re.serialise(&serialisers.Sizer{&buf_size})
-	buf := make([]byte, buf_size)
-	// Should the buffer be the responsibility of the Model object?
-	re.serialise(&serialisers.Saver{Array: &buf})
-	write_binary_file(&buf, re.conf_name, re.view)
-	zero_buffer(&buf)
 }
 
-
-
+func TestWipe(t *testing.T) {
+	var size uint32 = 2048
+	sv := Saver{}.Init(&size)
+	ld := Loader{}.Init(&size)
+	sv.SecureWipe()
+	ld.SecureWipe()
 }
-*/
-
-//func TestSizer(t *testing.T) {
-//}
-
