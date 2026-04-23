@@ -27,28 +27,48 @@ type Tester struct {
 	sl1 Stringlist
 }
 
-func (re *Tester) serialise(s Serialiser) {
-	s.IoInt32(&re.i32a)
-	s.IoInt32(&re.i32b)
-	s.IoInt32(&re.i32c)
-	s.IoInt32(&re.i32d)
-	s.IoInt64(&re.i64a)
-	s.IoInt64(&re.i64b)
-	s.IoUint32(&re.u32a)
-	s.IoUint32(&re.u32b)
-	s.IoUint64(&re.u64a)
-	s.IoUint64(&re.u64b)
-	s.IoFloat32(&re.f32a)
-	s.IoFloat32(&re.f32b)
-	s.IoFloat64(&re.f64a)
-	s.IoFloat64(&re.f64b)
-	s.IoString(&re.s1)
-	s.IoString(&re.s2)
-	s.IoHashmap(&re.hm1)
-	s.IoStringlist(&re.sl1)
+func (re *Tester) serialise(s Serialiser) error {
+	var err error
+	err = s.IoInt32(&re.i32a)
+	if err != nil { return err }
+	err = s.IoInt32(&re.i32b)
+	if err != nil { return err }
+	err = s.IoInt32(&re.i32c)
+	if err != nil { return err }
+	err = s.IoInt32(&re.i32d)
+	if err != nil { return err }
+	err = s.IoInt64(&re.i64a)
+	if err != nil { return err }
+	err = s.IoInt64(&re.i64b)
+	if err != nil { return err }
+	err = s.IoUint32(&re.u32a)
+	if err != nil { return err }
+	err = s.IoUint32(&re.u32b)
+	if err != nil { return err }
+	err = s.IoUint64(&re.u64a)
+	if err != nil { return err }
+	err = s.IoUint64(&re.u64b)
+	if err != nil { return err }
+	err = s.IoFloat32(&re.f32a)
+	if err != nil { return err }
+	err = s.IoFloat32(&re.f32b)
+	if err != nil { return err }
+	err = s.IoFloat64(&re.f64a)
+	if err != nil { return err }
+	err = s.IoFloat64(&re.f64b)
+	if err != nil { return err }
+	err = s.IoString(&re.s1)
+	if err != nil { return err }
+	err = s.IoString(&re.s2)
+	if err != nil { return err }
+	err = s.IoHashmap(&re.hm1)
+	if err != nil { return err }
+	err = s.IoStringlist(&re.sl1)
+	if err != nil { return err }
+	return nil
 }
 
-func testSizer() (uint32, Tester) {
+func testSizer() (uint32, Tester, error) {
 	var size uint32 = 0
 	hm := make(Hashmap)
 	hm["team"] = "SysAdmins"
@@ -67,47 +87,65 @@ func testSizer() (uint32, Tester) {
 		sl,
 	}
 	sz := Sizer{}.Init(&size)
-	tr.serialise(&sz)
-	return size, tr
+	err := tr.serialise(&sz)
+	return size, tr, err
 }
 
-func testSaver(tr Tester, ob *bytes.Buffer, size uint32) []byte {
+func testSaver(tr Tester, ob *bytes.Buffer, size uint32) ([]byte, error) {
 	sv := Saver{}.Init(&size)
-	tr.serialise(&sv)
+	err := tr.serialise(&sv)
 	(*ob).Write(sv.Array)
-	return sv.Array
+	return sv.Array, err
 }
 
-func testLoader(tr Tester, ob *bytes.Buffer, size uint32, svArray *[]byte) (int, bool, []byte, Tester) {
+func testLoader(tr Tester, ob *bytes.Buffer, size uint32, svArray *[]byte) (int, bool, []byte, Tester, error) {
 	ld := Loader{}.Init(&size)
 	n, err := (*ob).Read(ld.Array)
 	var trLoader Tester
-	trLoader.serialise(&ld)
+	err2 := trLoader.serialise(&ld)
 	(*ob).Reset()
 	(*ob).Write(ld.Array)
-	return n, (err == nil), ld.Array, trLoader
+	return n, (err == nil), ld.Array, trLoader, err2
 }
 
 func TestSizer(t *testing.T) {
-	size, _ := testSizer()
+	size, _, err := testSizer()
+	if err != nil {
+		t.Errorf(err.Error())
+	}
 	t.Logf("Sized test struct at %d bytes.", size)
 }
 
 func TestSaver(t *testing.T) {
-	size, tr := testSizer()
+	size, tr, err := testSizer()
+	if err != nil {
+		t.Errorf(err.Error())
+	}
 	t.Logf("Sized test struct at %d bytes.", size)
 	var outBuffer bytes.Buffer
-	_ = testSaver(tr, &outBuffer, size)
+	_, err = testSaver(tr, &outBuffer, size)
+	if err != nil {
+		t.Errorf(err.Error())
+	}
 	t.Logf("Buffer: %q", outBuffer.String())
 }
 
 func TestLoader(t *testing.T) {
-	size, tr := testSizer()
+	size, tr, err := testSizer()
+	if err != nil {
+		t.Errorf(err.Error())
+	}
 	t.Logf("Sized test struct at %d bytes.", size)
 	var outBuffer bytes.Buffer
-	svArray := testSaver(tr, &outBuffer, size)
+	svArray, err := testSaver(tr, &outBuffer, size)
+	if err != nil {
+		t.Errorf(err.Error())
+	}
 	t.Logf("Buffer: %q", outBuffer.String())
-	numBytesCopied, isCopiedOk, ldArray, trLoader := testLoader(tr, &outBuffer, size, &svArray)
+	numBytesCopied, isCopiedOk, ldArray, trLoader, err := testLoader(tr, &outBuffer, size, &svArray)
+	if err != nil {
+		t.Errorf(err.Error())
+	}
 	if isCopiedOk {
 		t.Logf("No error while copying Loader array")
 	} else {

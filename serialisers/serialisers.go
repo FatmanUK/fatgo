@@ -2,6 +2,7 @@ package serialisers
 
 import (
 	"math"
+	"errors"
 	"math/rand"  // for array wipe
 )
 
@@ -20,22 +21,24 @@ func wipeArrayRandom(a *[]byte) {
 type Hashmap = map[string]string
 type Stringlist = []string
 
+const ERR_ARRAY_TOO_SMALL = "Array too small."
+
 /////////////////////////////////////////////////////////////////////
 
 type Serialiser interface {
-	IoInt32(*int32)
-	IoInt64(*int64)
-	IoUint32(*uint32)
-	IoUint64(*uint64)
-	IoFloat32(*float32)
-	IoFloat64(*float64)
-	IoString(*string)
-	IoHashmap(*Hashmap)
-	IoStringlist(*Stringlist)
+	IoInt32(*int32) error
+	IoInt64(*int64) error
+	IoUint32(*uint32) error
+	IoUint64(*uint64) error
+	IoFloat32(*float32) error
+	IoFloat64(*float64) error
+	IoString(*string) error
+	IoHashmap(*Hashmap) error
+	IoStringlist(*Stringlist) error
 }
 
 type Serialisable interface {
-	Serialise(Serialiser)
+	serialise(Serialiser)
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -49,51 +52,60 @@ func (re Sizer) Init(s *uint32) Sizer {
 	return re
 }
 
-func (re *Sizer) IoInt32(i *int32) {
+func (re *Sizer) IoInt32(i *int32) error {
 	*(re.Size) += 4
+	return nil
 }
 
-func (re *Sizer) IoInt64(i *int64) {
+func (re *Sizer) IoInt64(i *int64) error {
 	*(re.Size) += 8
+	return nil
 }
 
-func (re *Sizer) IoUint32(i *uint32) {
+func (re *Sizer) IoUint32(i *uint32) error {
 	*(re.Size) += 4
+	return nil
 }
 
-func (re *Sizer) IoUint64(i *uint64) {
+func (re *Sizer) IoUint64(i *uint64) error {
 	*(re.Size) += 8
+	return nil
 }
 
-func (re *Sizer) IoFloat32(f *float32) {
+func (re *Sizer) IoFloat32(f *float32) error {
 	*(re.Size) += 4
+	return nil
 }
 
-func (re *Sizer) IoFloat64(f *float64) {
+func (re *Sizer) IoFloat64(f *float64) error {
 	*(re.Size) += 8
+	return nil
 }
 
-func (re *Sizer) IoString(str *string) {
+func (re *Sizer) IoString(str *string) error {
 	l := uint32(len(*str))
 	re.IoUint32(&l)
 	*(re.Size) += uint32(l)
+	return nil
 }
 
-func (re *Sizer) IoHashmap(hm *Hashmap) {
+func (re *Sizer) IoHashmap(hm *Hashmap) error {
 	l := uint32(len(*hm))
 	re.IoUint32(&l)
 	for k, v := range *hm {
 		re.IoString(&k)
 		re.IoString(&v)
 	}
+	return nil
 }
 
-func (re *Sizer) IoStringlist(sl *Stringlist) {
+func (re *Sizer) IoStringlist(sl *Stringlist) error {
 	l := uint32(len(*sl))
 	re.IoUint32(&l)
 	for _, v := range *sl {
 		re.IoString(&v)
 	}
+	return nil
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -113,7 +125,12 @@ func (re *Saver) SecureWipe() {
 }
 
 // have to use pointer receiver for these so we can use Serialiser interface
-func (re *Saver) IoInt32(i *int32) {
+func (re *Saver) IoInt32(i *int32) error {
+	var err error = nil
+	if uint64(len(re.Array)) < re.index + 4 {
+		err = errors.New(ERR_ARRAY_TOO_SMALL)
+		return err
+	}
 	a := byte(*i >> 24)
 	b := byte(*i >> 16)
 	c := byte(*i >> 8)
@@ -129,9 +146,15 @@ func (re *Saver) IoInt32(i *int32) {
 	re.Array[re.index + uint64(add + (2 * mul))] = byte(c)
 	re.Array[re.index + uint64(add + (3 * mul))] = byte(d)
 	re.index += 4
+	return err
 }
 
-func (re *Saver) IoInt64(i *int64) {
+func (re *Saver) IoInt64(i *int64) error {
+	var err error = nil
+	if uint64(len(re.Array)) < re.index + 4 {
+		err = errors.New(ERR_ARRAY_TOO_SMALL)
+		return err
+	}
 	a := byte(*i >> 56)
 	b := byte(*i >> 48)
 	c := byte(*i >> 40)
@@ -155,9 +178,15 @@ func (re *Saver) IoInt64(i *int64) {
 	re.Array[re.index + uint64(add + (6 * mul))] = byte(g)
 	re.Array[re.index + uint64(add + (7 * mul))] = byte(h)
 	re.index += 8
+	return err
 }
 
-func (re *Saver) IoUint32(i *uint32) {
+func (re *Saver) IoUint32(i *uint32) error {
+	var err error = nil
+	if uint64(len(re.Array)) < re.index + 4 {
+		err = errors.New(ERR_ARRAY_TOO_SMALL)
+		return err
+	}
 	a := byte(*i >> 24)
 	b := byte(*i >> 16)
 	c := byte(*i >> 8)
@@ -173,9 +202,15 @@ func (re *Saver) IoUint32(i *uint32) {
 	re.Array[re.index + uint64(add + (2 * mul))] = byte(c)
 	re.Array[re.index + uint64(add + (3 * mul))] = byte(d)
 	re.index += 4
+	return err
 }
 
-func (re *Saver) IoUint64(i *uint64) {
+func (re *Saver) IoUint64(i *uint64) error {
+	var err error = nil
+	if uint64(len(re.Array)) < re.index + 4 {
+		err = errors.New(ERR_ARRAY_TOO_SMALL)
+		return err
+	}
 	a := byte(*i >> 56)
 	b := byte(*i >> 48)
 	c := byte(*i >> 40)
@@ -199,44 +234,75 @@ func (re *Saver) IoUint64(i *uint64) {
 	re.Array[re.index + uint64(add + (6 * mul))] = byte(g)
 	re.Array[re.index + uint64(add + (7 * mul))] = byte(h)
 	re.index += 8
+	return err
 }
 
-func (re *Saver) IoFloat32(f *float32) {
+func (re *Saver) IoFloat32(f *float32) error {
+	var err error = nil
+	if uint64(len(re.Array)) < re.index + 4 {
+		err = errors.New(ERR_ARRAY_TOO_SMALL)
+		return err
+	}
 	bits := math.Float32bits(*f)
 	var u uint32 = uint32(bits)
 	re.IoUint32(&u)
+	return err
 }
 
-func (re *Saver) IoFloat64(f *float64) {
+func (re *Saver) IoFloat64(f *float64) error {
+	var err error = nil
+	if uint64(len(re.Array)) < re.index + 4 {
+		err = errors.New(ERR_ARRAY_TOO_SMALL)
+		return err
+	}
 	bits := math.Float64bits(*f)
 	var u uint64 = uint64(bits)
 	re.IoUint64(&u)
+	return err
 }
 
-func (re *Saver) IoString(s *string) {
+func (re *Saver) IoString(s *string) error {
+	var err error = nil
+	if uint64(len(re.Array)) < re.index + 4 {
+		err = errors.New(ERR_ARRAY_TOO_SMALL)
+		return err
+	}
 	l := uint32(len(*s))
 	re.IoUint32(&l)
 	for c := uint64(0); c < uint64(l); c++ {
 		re.Array[re.index + c] = (*s)[c]
 	}
 	re.index += uint64(l)
+	return err
 }
 
-func (re *Saver) IoHashmap(hm *Hashmap) {
+func (re *Saver) IoHashmap(hm *Hashmap) error {
+	var err error = nil
+	if uint64(len(re.Array)) < re.index + 4 {
+		err = errors.New(ERR_ARRAY_TOO_SMALL)
+		return err
+	}
 	l := uint32(len(*hm))
 	re.IoUint32(&l)
 	for k, v := range *hm {
 		re.IoString(&k)
 		re.IoString(&v)
 	}
+	return err
 }
 
-func (re *Saver) IoStringlist(sl *Stringlist) {
+func (re *Saver) IoStringlist(sl *Stringlist) error {
+	var err error = nil
+	if uint64(len(re.Array)) < re.index + 4 {
+		err = errors.New(ERR_ARRAY_TOO_SMALL)
+		return err
+	}
 	l := uint32(len(*sl))
 	re.IoUint32(&l)
 	for _, v := range *sl {
 		re.IoString(&v)
 	}
+	return err
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -255,7 +321,12 @@ func (re *Loader) SecureWipe() {
 	wipeArrayRandom(&re.Array)
 }
 
-func (re *Loader) IoInt32(i *int32) {
+func (re *Loader) IoInt32(i *int32) error {
+	var err error = nil
+	if uint64(len(re.Array)) < re.index + 4 {
+		err = errors.New(ERR_ARRAY_TOO_SMALL)
+		return err
+	}
 	mul := 1
 	add := 0
 	if isLittleEndian() {
@@ -270,9 +341,15 @@ func (re *Loader) IoInt32(i *int32) {
 	*i = (int32(a) << 24) + (int32(b) << 16) + (int32(c) << 8)
 	*i += int32(d)
 	re.index += 4
+	return err
 }
 
-func (re *Loader) IoInt64(i *int64) {
+func (re *Loader) IoInt64(i *int64) error {
+	var err error = nil
+	if uint64(len(re.Array)) < re.index + 4 {
+		err = errors.New(ERR_ARRAY_TOO_SMALL)
+		return err
+	}
 	mul := 1
 	add := 0
 	if isLittleEndian() {
@@ -292,9 +369,15 @@ func (re *Loader) IoInt64(i *int64) {
 	*i += (int64(d) << 32) + (int64(e) << 24) + (int64(f) << 16)
 	*i += (int64(g) << 8) + int64(h)
 	re.index += 8
+	return err
 }
 
-func (re *Loader) IoUint32(i *uint32) {
+func (re *Loader) IoUint32(i *uint32) error {
+	var err error = nil
+	if uint64(len(re.Array)) < re.index + 4 {
+		err = errors.New(ERR_ARRAY_TOO_SMALL)
+		return err
+	}
 	mul := 1
 	add := 0
 	if isLittleEndian() {
@@ -309,9 +392,15 @@ func (re *Loader) IoUint32(i *uint32) {
 	*i = (uint32(a) << 24) + (uint32(b) << 16) + (uint32(c) << 8)
 	*i += uint32(d)
 	re.index += 4
+	return err
 }
 
-func (re *Loader) IoUint64(i *uint64) {
+func (re *Loader) IoUint64(i *uint64) error {
+	var err error = nil
+	if uint64(len(re.Array)) < re.index + 4 {
+		err = errors.New(ERR_ARRAY_TOO_SMALL)
+		return err
+	}
 	mul := 1
 	add := 0
 	if isLittleEndian() {
@@ -331,28 +420,52 @@ func (re *Loader) IoUint64(i *uint64) {
 	*i += (uint64(d) << 32) + (uint64(e) << 24) + (uint64(f) << 16)
 	*i += (uint64(g) << 8) + uint64(h)
 	re.index += 8
+	return err
 }
 
-func (re *Loader) IoFloat32(f *float32) {
+func (re *Loader) IoFloat32(f *float32) error {
+	var err error = nil
+	if uint64(len(re.Array)) < re.index + 4 {
+		err = errors.New(ERR_ARRAY_TOO_SMALL)
+		return err
+	}
 	var u uint32
 	re.IoUint32(&u)
 	*f = math.Float32frombits(u)
+	return err
 }
 
-func (re *Loader) IoFloat64(f *float64) {
+func (re *Loader) IoFloat64(f *float64) error {
+	var err error = nil
+	if uint64(len(re.Array)) < re.index + 4 {
+		err = errors.New(ERR_ARRAY_TOO_SMALL)
+		return err
+	}
 	var u uint64
 	re.IoUint64(&u)
 	*f = math.Float64frombits(u)
+	return err
 }
 
-func (re *Loader) IoString(s *string) {
+func (re *Loader) IoString(s *string) error {
+	var err error = nil
+	if uint64(len(re.Array)) < re.index + 4 {
+		err = errors.New(ERR_ARRAY_TOO_SMALL)
+		return err
+	}
 	var l uint32
 	re.IoUint32(&l)
 	(*s) = string(re.Array[re.index : re.index + uint64(l)])
 	re.index += uint64(l)
+	return err
 }
 
-func (re *Loader) IoHashmap(hm *Hashmap) {
+func (re *Loader) IoHashmap(hm *Hashmap) error {
+	var err error = nil
+	if uint64(len(re.Array)) < re.index + 4 {
+		err = errors.New(ERR_ARRAY_TOO_SMALL)
+		return err
+	}
 	var l uint32
 	re.IoUint32(&l)
 	if (*hm) == nil {
@@ -365,9 +478,15 @@ func (re *Loader) IoHashmap(hm *Hashmap) {
 		re.IoString(&s2)
 		(*hm)[s1] = s2
 	}
+	return err
 }
 
-func (re *Loader) IoStringlist(sl *Stringlist) {
+func (re *Loader) IoStringlist(sl *Stringlist) error {
+	var err error = nil
+	if uint64(len(re.Array)) < re.index + 4 {
+		err = errors.New(ERR_ARRAY_TOO_SMALL)
+		return err
+	}
 	var l uint32
 	re.IoUint32(&l)
 	for c := uint64(0); c < uint64(l); c++ {
@@ -375,4 +494,5 @@ func (re *Loader) IoStringlist(sl *Stringlist) {
 		re.IoString(&s1)
 		(*sl) = append((*sl), s1)
 	}
+	return err
 }
