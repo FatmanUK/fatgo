@@ -192,26 +192,23 @@ func NewLH5Decoder(r io.Reader, originalSize uint32) io.Reader {
 	}
 }
 
+// readBlockHeader parses the 16-bit block size and rebuilds the Huffman trees.
 func (d *lh5Decoder) readBlockHeader() error {
-	// Read the size of the next block
+	// The block size in LHA dictates how many symbols/tokens we decode 
+	// before we need to read a new set of Huffman trees.
 	sizeBits, err := d.br.ReadBits(16)
 	if err != nil {
 		return err
 	}
 	d.blockSize = sizeBits
 
-	// Read the Temporary Tree (NT), which is used to read the other trees
-	// Read the Code Length Tree (NC)
-	// Read the Offset Tree (NP)
-	// (In a full implementation, this is where you read the arrays of bit-lengths 
-	// from the file and call d.ncTree.buildTree() and d.npTree.buildTree())
-	
-	return d.readTrees() 
+	// Re-populate the Literal/Length (NC) and Offset (NP) trees
+	return d.readTrees()
 }
 
 // readPtLen reads bit-lengths for a small tree directly from the stream.
-// This closely translates the 'read_pt_len' C function.
-func (d *lh5Decoder) readPtLen(nn uint16, nbit uint8, iSpecial uint16) (*huffmanTree, error) {
+// iSpecial is set to -1 if the specific tree type does not use skip logic.
+func (d *lh5Decoder) readPtLen(nn uint16, nbit uint8, iSpecial int) (*huffmanTree, error) {
 	numSymbols, err := d.br.ReadBits(nbit)
 	if err != nil {
 		return nil, err
@@ -220,24 +217,17 @@ func (d *lh5Decoder) readPtLen(nn uint16, nbit uint8, iSpecial uint16) (*huffman
 	lengths := make([]uint8, nn)
 
 	if numSymbols == 0 {
-		// Special Case: A tree with only one active symbol.
+		// Single active symbol edge-case
 		singleSymbol, err := d.br.ReadBits(nbit)
 		if err != nil {
 			return nil, err
 		}
-		// In a single-node tree, we artificially set its length to 0.
-		// The buildTree method will need to handle this edge case.
 		if singleSymbol < nn {
-			lengths[singleSymbol] = 0 // Wait for buildTree to handle
+			lengths[singleSymbol] = 0
 		}
 	} else {
 		i := uint16(0)
 		for i < numSymbols && i < nn {
-			// Read 3 bits directly. LHA sometimes stores bit lengths as unary/binary mixes,
-			// but for PT/NP it reads 3 bits at a time.
-			// Standard C implementation often looks like: 
-			// c = GETBITS(3); if (c == 7) while (GETBIT()) c++;
-
 			// Read the base 3 bits
 			val, err := d.br.ReadBits(3)
 			if err != nil {
@@ -246,15 +236,15 @@ func (d *lh5Decoder) readPtLen(nn uint16, nbit uint8, iSpecial uint16) (*huffman
 			
 			c := uint8(val)
 			
-			// If the value is exactly 7, switch to unary counting
+			// Switch to unary counting if max value (7) is hit
 			if c == 7 {
 				for {
 					bit, err := d.br.ReadBits(1)
-					if err != nil { 
-						return nil, err 
+					if err != nil {
+						return nil, err
 					}
-					if bit == 0 { 
-						break // Stop counting when we hit a 0
+					if bit == 0 {
+						break
 					}
 					c++
 				}
@@ -262,14 +252,15 @@ func (d *lh5Decoder) readPtLen(nn uint16, nbit uint8, iSpecial uint16) (*huffman
 			
 			lengths[i] = c
 			i++
-
-			// Handle the "skip" code (iSpecial)
-			if i == iSpecial {
+			
+			// Handle the LHA skip code if this tree uses it
+			if iSpecial >= 0 && int(i) == iSpecial {
 				skipBits, err := d.br.ReadBits(2)
-				if err != nil { return nil, err }
-				skipCount := skipBits
+				if err != nil {
+					return nil, err
+				}
 				
-				for j := uint16(0); j < skipCount && i < nn; j++ {
+				for j := uint16(0); j < skipBits && i < nn; j++ {
 					lengths[i] = 0
 					i++
 				}
@@ -341,25 +332,21 @@ func (d *lh5Decoder) readCLen(ptTree *huffmanTree) (*huffmanTree, error) {
 
 // readTrees reads the dynamic Huffman tree definitions for the new block.
 func (d *lh5Decoder) readTrees() error {
-	// 1. Read the Pre-Tree (PT). 
-	// Max 19 symbols, read using 5 bits for the count, 3 bits for special index.
+	// 1. Read NT (Pre-Tree): 19 symbols, 5-bit count, special skip at index 3
 	ptTree, err := d.readPtLen(19, 5, 3)
 	if err != nil {
 		return err
 	}
 
-	// 2. Decode the Literal/Length (NC) Tree using the Pre-Tree.
-	// Max 510 symbols.
+	// 2. Read NC (Literal/Length Tree): 510 symbols, decoded using NT
 	ncTree, err := d.readCLen(ptTree)
 	if err != nil {
 		return err
 	}
 	d.ncTree = ncTree
 
-	// 3. Read the Offset (NP) Tree.
-	// In -lh5-, the NP tree lengths are read directly from the stream 
-	// using the exact same logic as the Pre-Tree. Max 19 symbols.
-	npTree, err := d.readPtLen(19, 5, 3)
+	// 3. Read NP (Offset Tree): 14 symbols, 4-bit count, NO special skip (-1)
+	npTree, err := d.readPtLen(14, 4, -1)
 	if err != nil {
 		return err
 	}
