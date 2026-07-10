@@ -461,21 +461,26 @@ func (re *Loader) IoString(s *string) error {
 }
 
 func (re *Loader) IoHashmap(hm *Hashmap) error {
+	arraySize := uint64(len(re.Array))
+	// bug here
 	var err error = nil
-	if uint64(len(re.Array)) < re.index + 4 {
+	if arraySize < (re.index + 4) {
 		err = errors.New(ERR_ARRAY_TOO_SMALL)
 		return err
 	}
 	var l uint32
-	re.IoUint32(&l)
+	err = re.IoUint32(&l)
+	if err != nil { return err }
 	if (*hm) == nil {
 		(*hm) = make(Hashmap)
 	}
 	for c := uint64(0); c < uint64(l); c++ {
 		var s1 string
+		err = re.IoString(&s1)
+		if err != nil { return err }
 		var s2 string
-		re.IoString(&s1)
-		re.IoString(&s2)
+		err = re.IoString(&s2)
+		if err != nil { return err }
 		(*hm)[s1] = s2
 	}
 	return err
