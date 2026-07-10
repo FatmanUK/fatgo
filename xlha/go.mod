@@ -1,3 +1,3 @@
-module github.com/FatmanUK/fatgo/xlha
+module xlha
 
 go 1.24.13
