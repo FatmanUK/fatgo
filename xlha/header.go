@@ -76,7 +76,7 @@ func ReadHeader(r io.Reader) (*Header, error) {
 	// Filename length and filename
 	var nameLen uint8
 	binary.Read(br, binary.LittleEndian, &nameLen)
-	
+
 	nameBytes := make([]byte, nameLen)
 	io.ReadFull(br, nameBytes)
 	h.Name = string(nameBytes)
@@ -84,7 +84,7 @@ func ReadHeader(r io.Reader) (*Header, error) {
 	// Read CRC16
 	binary.Read(br, binary.LittleEndian, &h.CRC16)
 
-	// Note: For Level 1 and Level 2 headers, there are "Extended Headers" 
+	// Note: For Level 1 and Level 2 headers, there are "Extended Headers"
 	// that follow. We can add logic to skip or parse those next if needed.
 
 	return h, nil

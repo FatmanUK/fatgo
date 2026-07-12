@@ -36,7 +36,7 @@ func (b *BitReader) ReadBits(count uint8) (uint16, error) {
 
 	// Extract the requested bits
 	res := b.bits >> (b.n - count)
-	
+
 	// Create a mask to clear the bits we just read
 	mask := (uint16(1) << (b.n - count)) - 1
 	b.bits &= mask
@@ -69,7 +69,7 @@ func newHuffmanTree(numSymbols uint16) *huffmanTree {
 // buildTree reconstructs the Huffman tree from an array of code lengths.
 func (t *huffmanTree) buildTree(lengths []uint8) error {
 	numSymbols := uint16(len(lengths))
-	
+
 	count := make([]uint16, 17)
 	for _, length := range lengths {
 		if length > 16 {
@@ -87,7 +87,7 @@ func (t *huffmanTree) buildTree(lengths []uint8) error {
 	}
 
 	nextNode := uint16(1) // Node 0 is the root
-	
+
 	for i := range t.left {
 		t.left[i] = 0
 		t.right[i] = 0
@@ -96,14 +96,14 @@ func (t *huffmanTree) buildTree(lengths []uint8) error {
 	for symbol := uint16(0); symbol < numSymbols; symbol++ {
 		length := lengths[symbol]
 		if length == 0 {
-			continue 
+			continue
 		}
 
 		currentCode := startCode[length]
 		startCode[length]++
 
-		node := uint16(0) 
-		
+		node := uint16(0)
+
 		for bitPos := length; bitPos > 0; bitPos-- {
 			bit := (currentCode >> (bitPos - 1)) & 1
 
@@ -168,7 +168,7 @@ type lh5Decoder struct {
 	ringPos int
 
 	// Output buffering state
-	outBuf []byte 
+	outBuf []byte
 
 	// Huffman Trees attached to the decoder
 	ncTree *huffmanTree // Literal/Length tree
@@ -194,7 +194,7 @@ func NewLH5Decoder(r io.Reader, originalSize uint32) io.Reader {
 
 // readBlockHeader parses the 16-bit block size and rebuilds the Huffman trees.
 func (d *lh5Decoder) readBlockHeader() error {
-	// The block size in LHA dictates how many symbols/tokens we decode 
+	// The block size in LHA dictates how many symbols/tokens we decode
 	// before we need to read a new set of Huffman trees.
 	sizeBits, err := d.br.ReadBits(16)
 	if err != nil {
@@ -233,9 +233,9 @@ func (d *lh5Decoder) readPtLen(nn uint16, nbit uint8, iSpecial int) (*huffmanTre
 			if err != nil {
 				return nil, err
 			}
-			
+
 			c := uint8(val)
-			
+
 			// Switch to unary counting if max value (7) is hit
 			if c == 7 {
 				for {
@@ -249,17 +249,17 @@ func (d *lh5Decoder) readPtLen(nn uint16, nbit uint8, iSpecial int) (*huffmanTre
 					c++
 				}
 			}
-			
+
 			lengths[i] = c
 			i++
-			
+
 			// Handle the LHA skip code if this tree uses it
 			if iSpecial >= 0 && int(i) == iSpecial {
 				skipBits, err := d.br.ReadBits(2)
 				if err != nil {
 					return nil, err
 				}
-				
+
 				for j := uint16(0); j < skipBits && i < nn; j++ {
 					lengths[i] = 0
 					i++
@@ -285,7 +285,9 @@ func (d *lh5Decoder) readCLen(ptTree *huffmanTree) (*huffmanTree, error) {
 	if numNC == 0 {
 		// Handle empty tree
 		singleSymbol, err := d.br.ReadBits(9)
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		if singleSymbol < 510 {
 			lengths[singleSymbol] = 0
 		}
@@ -305,11 +307,15 @@ func (d *lh5Decoder) readCLen(ptTree *huffmanTree) (*huffmanTree, error) {
 					skipCount = 1
 				} else if c == 1 {
 					skipBits, err := d.br.ReadBits(4)
-					if err != nil { return nil, err }
+					if err != nil {
+						return nil, err
+					}
 					skipCount = skipBits + 3
 				} else if c == 2 {
 					skipBits, err := d.br.ReadBits(9)
-					if err != nil { return nil, err }
+					if err != nil {
+						return nil, err
+					}
 					skipCount = skipBits + 20
 				}
 
@@ -373,7 +379,7 @@ func (d *lh5Decoder) Read(p []byte) (int, error) {
 
 	// 2. Main decompression loop
 	for len(p) > 0 && d.remaining > 0 {
-		
+
 		// If we finished the previous block, load the next one
 		if d.blockSize == 0 {
 			if err := d.readBlockHeader(); err != nil {
@@ -391,23 +397,23 @@ func (d *lh5Decoder) Read(p []byte) (int, error) {
 		if symbol < 256 {
 			// Literal byte
 			b := byte(symbol)
-			
+
 			d.ringBuf[d.ringPos] = b
 			d.ringPos = (d.ringPos + 1) % windowSize
-			
+
 			p[0] = b
 			p = p[1:]
 			written++
 			d.remaining--
 		} else {
 			// LZSS Match Length & Offset
-			matchLength := int(symbol - 256 + 3) 
-			
+			matchLength := int(symbol - 256 + 3)
+
 			offsetIndex, err := d.npTree.readSymbol(d.br)
 			if err != nil {
 				return written, err
 			}
-			
+
 			matchOffset := int(offsetIndex)
 			if offsetIndex > 1 {
 				extraBits, err := d.br.ReadBits(uint8(offsetIndex - 1))
@@ -421,10 +427,10 @@ func (d *lh5Decoder) Read(p []byte) (int, error) {
 			for i := 0; i < matchLength; i++ {
 				readPos := (d.ringPos - matchOffset - 1 + windowSize) % windowSize
 				b := d.ringBuf[readPos]
-				
+
 				d.ringBuf[d.ringPos] = b
 				d.ringPos = (d.ringPos + 1) % windowSize
-				
+
 				if len(p) > 0 {
 					p[0] = b
 					p = p[1:]

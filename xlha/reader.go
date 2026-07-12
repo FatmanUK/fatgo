@@ -3,14 +3,13 @@ package xlha
 import (
 	"errors"
 	"fmt"
-	"hash"
 	"io"
 )
 
 var (
 	// ErrCRCMismatch is returned when the computed checksum does not match the header.
 	ErrCRCMismatch = errors.New("lha: CRC checksum mismatch")
-	
+
 	// ErrUnsupportedMethod is returned when the archive uses a compression scheme other than -lh0- or -lh5-.
 	ErrUnsupportedMethod = errors.New("lha: unsupported compression method")
 )
@@ -22,7 +21,7 @@ type Reader struct {
 	header        *Header
 	decoder       io.Reader
 	limitedSource *io.LimitedReader // Tracks unconsumed compressed bytes
-	crc           hash.Hash16
+	crc           Hash16            // Updated to use the local Hash16 interface
 	bytesLeft     int64             // Tracks remaining uncompressed bytes for the current file
 }
 
@@ -32,9 +31,8 @@ func NewReader(r io.Reader) *Reader {
 }
 
 // Next advances to the next entry in the LHA archive and returns its Header.
-// It safely handles skipping any unread data from the previous file entry.
 func (tr *Reader) Next() (*Header, error) {
-	// 1. If a file was partially read (or skipped entirely), consume 
+	// 1. If a file was partially read (or skipped entirely), consume
 	// any remaining compressed data to align the stream with the next header block.
 	if tr.limitedSource != nil && tr.limitedSource.N > 0 {
 		if _, err := io.CopyN(io.Discard, tr.r, tr.limitedSource.N); err != nil {
@@ -45,8 +43,7 @@ func (tr *Reader) Next() (*Header, error) {
 	// 2. Read the next metadata header block from the stream
 	h, err := ReadHeader(tr.r)
 	if err != nil {
-		// Maps cleanly to io.EOF when terminating bytes (0x00) or end-of-stream are reached
-		return nil, err 
+		return nil, err
 	}
 
 	tr.header = h
@@ -54,16 +51,13 @@ func (tr *Reader) Next() (*Header, error) {
 	tr.crc = NewCRC16()
 
 	// 3. Enforce strict reading limits based on the header's declared CompressedSize.
-	// This prevents the underlying BitReader from over-reading into subsequent headers.
 	tr.limitedSource = &io.LimitedReader{R: tr.r, N: int64(h.CompressedSize)}
 
 	// 4. Instantiated processing pipeline based on the compression method identifier
 	switch h.Method {
 	case "-lh0-":
-		// Stored method: copy bytes straight through without decompressing
 		tr.decoder = tr.limitedSource
 	case "-lh5-":
-		// Dynamic Huffman + LZSS compression method
 		tr.decoder = NewLH5Decoder(tr.limitedSource, h.OriginalSize)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedMethod, h.Method)
@@ -73,7 +67,6 @@ func (tr *Reader) Next() (*Header, error) {
 }
 
 // Read reads uncompressed data from the current file entry in the LHA archive.
-// It returns 0, io.EOF when the end of the current file's uncompressed stream is reached.
 func (tr *Reader) Read(b []byte) (int, error) {
 	if tr.decoder == nil {
 		return 0, io.EOF
@@ -83,7 +76,7 @@ func (tr *Reader) Read(b []byte) (int, error) {
 	if tr.bytesLeft == 0 {
 		if tr.crc != nil {
 			if tr.crc.Sum16() != tr.header.CRC16 {
-				tr.crc = nil // Clear state to avoid infinite error trapping
+				tr.crc = nil
 				return 0, ErrCRCMismatch
 			}
 			tr.crc = nil
@@ -103,7 +96,7 @@ func (tr *Reader) Read(b []byte) (int, error) {
 			if tr.crc.Sum16() != tr.header.CRC16 {
 				return n, ErrCRCMismatch
 			}
-			return n, io.EOF // Stream successfully finished and validated
+			return n, io.EOF
 		}
 	}
 

@@ -10,11 +10,16 @@ const (
 	crcPolynomial = 0xA001
 )
 
+// Hash16 is the common interface implemented by all 16-bit hash functions.
+type Hash16 interface {
+	hash.Hash
+	Sum16() uint16
+}
+
 // crcTable caches the precomputed values for byte-by-byte CRC calculation.
 var crcTable [256]uint16
 
 // init automatically calculates the lookup table the first time the package is imported.
-// This gives us the performance of a hardcoded C array without cluttering the code.
 func init() {
 	for i := 0; i < 256; i++ {
 		crc := uint16(i)
@@ -29,18 +34,17 @@ func init() {
 	}
 }
 
-// crc16 implements the standard library's hash.Hash16 interface.
+// crc16 implements the Hash16 interface.
 type crc16 struct {
 	val uint16
 }
 
-// NewCRC16 returns a new hash.Hash16 computing the LHA-specific CRC-16 checksum.
-func NewCRC16() hash.Hash16 {
+// NewCRC16 returns a new Hash16 computing the LHA-specific CRC-16 checksum.
+func NewCRC16() Hash16 {
 	return &crc16{val: 0}
 }
 
 // Write processes a slice of bytes and updates the running checksum.
-// This allows the CRC calculator to be used seamlessly with io.Writers.
 func (c *crc16) Write(p []byte) (n int, err error) {
 	for _, b := range p {
 		// Calculate the next state using the precomputed lookup table

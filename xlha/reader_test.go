@@ -25,7 +25,7 @@ func TestAminetArchives(t *testing.T) {
 	for _, filename := range fixtures {
 		t.Run(filename, func(t *testing.T) {
 			path := filepath.Join("testdata", filename)
-			
+
 			// Open the local test fixture
 			file, err := os.Open(path)
 			if os.IsNotExist(err) {
@@ -68,7 +68,7 @@ func TestAminetArchives(t *testing.T) {
 			if fileCount == 0 {
 				t.Errorf("Archive %s parsed without error but yielded 0 files.", filename)
 			}
-			
+
 			t.Logf("Successfully verified %d files inside %s with zero CRC mismatches!", fileCount, filename)
 		})
 	}
