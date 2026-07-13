@@ -32,14 +32,14 @@ Eventually I resorted to asking Gemini, notably another Google product.
 >     └── sub2/
 >         └── go.mod
 > 
-> ### 1. The sub1 Sub-Project `go.mod`
+> ### 1. The `sub1` Sub-Project `go.mod`
 > 
 > Replace `your-username` with your actual GitHub username or organisation name.
 > 
 >     module ://github.com
 >     go 1.21
 > 
-> ### 2. The sub2 Sub-Project `go.mod`
+> ### 2. The `sub2` Sub-Project `go.mod`
 > 
 > If `sub2` needs to import `sub1`, use the full GitHub path.
 > 
@@ -85,7 +85,7 @@ Eventually I resorted to asking Gemini, notably another Google product.
 > 
 > * `go.work` defines the workspace: The `go.work` file turns the root directory into a workspace container.
 > * It flags sub-modules: The use directive tells Go exactly which sub-folders contain valid modules.
-> * ./... targets everything: When you run go test ./... from the root, Go scans all sub-directories defined in `go.work`, locates their respective `go.mod` files, and tests them. [1, 2, 3] 
+> * ./... targets everything: When you run go test ./... from the root, Go scans all sub-directories defined in `go.work`, locates their respective `go.mod` files, and tests them. [1, 2, 3]
 > 
 > ### The Danger of Adding Root `go.mod`
 > 
@@ -99,6 +99,40 @@ Eventually I resorted to asking Gemini, notably another Google product.
 > [1] [https://go.dev](https://go.dev/ref/mod)
 > [2] [https://www.andy-pearce.com](https://www.andy-pearce.com/blog/posts/2023/Jul/all-go-building-and-testing/)
 > [3] [https://medium.com](https://medium.com/@AlexanderObregon/go-modules-without-the-confusion-6a663228879b)
+
+> Q:
+> How to format multi-module git tags ?
+
+> A:
+> To version multiple modules in a single GitHub repository, you must prefix the Git tag with the relative path to the sub-module, followed by a forward slash and the semantic version.
+> 
+> ### Tag Format Structure
+> 
+>     [sub-module-directory]/[version]
+> 
+> ### Formatting Your Specific Modules
+> 
+> For your `super` repository, use these exact formats when creating tags:
+> 
+> * For `sub1`: sub1/v1.0.0
+> * For `sub2`: sub2/v0.1.0
+> 
+> ### How to Create and Push the Tags
+> 
+> Run these Git commands in your terminal to tag a specific release and send it to GitHub:
+> 
+>     # 1. Tag the sub1 module
+>     ❯ git tag sub1/v1.0.0
+>     # 2. Tag the sub2 module
+>     ❯ git tag sub2/v0.1.0
+>     # 3. Push the tags to GitHub
+>     ❯ git push origin --tags
+> 
+> ### Critical Rules for Multi-Module Tags
+> 
+> * Lowercase only: The tag prefix must match the directory name exactly. If your folder is `sub1`, the tag must start with `sub1/`.
+> * Include the 'v': The version section must start with a lowercase v (e.g., `v1.2.3`).
+> * No root tags: Do not create a global tag like v1.0.0 at the root. The Go proxy will get confused and will not know which sub-project the version belongs to.
 
 What's with all the `://github.com` nonsense? Gemini, otherwise pretty reliable in my opinion, always fails utterly on configuration lines with URLs in, regardless of how simple or complex the URL. Whatever the URL should be, the model always outputs something like "://domain.tld" for the URL itself.
 
