@@ -4,6 +4,7 @@ import (
 	"os"
 	"fmt"
 	"path/filepath"
+	"regexp"
 )
 
 // isCreate: create directory if missing
@@ -34,4 +35,20 @@ func IsFileExists(path string, isCreate bool) (bool, error) {
 		return false, nil
 	}
 	return false, err
+}
+
+func CountMatchingFiles(path string, regex string) (uint8, error) {
+	var count uint8 = 0
+	var err error
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return 0, err
+	}
+	re := regexp.MustCompile(regex)
+	for _, entry := range entries {
+		if !entry.IsDir() && re.MatchString(entry.Name()) {
+			count++
+		}
+	}
+	return count, nil
 }
