@@ -1,11 +1,11 @@
 go 1.24.13
 
 use (
-	.
 	./callwheel
 	./docopt_helpers
 	./doh
 	./mktls
 	./serialisers
+	./utils
 	./xlha
 )
