@@ -19,3 +19,11 @@ func TestCountMatchingFiles_Must_Succeed(t *testing.T) {
 func TestCountMatchingFiles_Must_Fail(t *testing.T) {
 //func CountMatchingFiles(path string, regex string) (uint8, error) {
 }
+
+func TestGetUserAppCacheDir_Must_Succeed(t *testing.T) {
+//func GetUserAppCacheDir(subdir string) (string, error) {
+}
+
+func TestGetUserAppCacheDir_Must_Fail(t *testing.T) {
+//func GetUserAppCacheDir(subdir string) (string, error) {
+}

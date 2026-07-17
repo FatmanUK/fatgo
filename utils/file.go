@@ -7,6 +7,8 @@ import (
 	"regexp"
 )
 
+const ERR_CACHE = `Didn't get user cache directory: %v`
+
 // isCreate: create directory if missing
 func IsFileExists(path string, isCreate bool) (bool, error) {
 	dir := filepath.Dir(path)
@@ -51,4 +53,12 @@ func CountMatchingFiles(path string, regex string) (uint8, error) {
 		}
 	}
 	return count, nil
+}
+
+func GetUserAppCacheDir(subdir string) (string, error) {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return cache, fmt.Errorf(ERR_CACHE, err)
+	}
+	return filepath.Join(cache, subdir), nil
 }
