@@ -35,7 +35,7 @@ func CallWheelFactory(s int) CallWheel {
 	// initialise linked lists
 	for i := c.ring.Len(); i > 0; i-- {
 		c.ring.Value = list.New()
-		c.ring = re.ring.Next()
+		c.ring = c.ring.Next()
 	}
 	return c
 }
