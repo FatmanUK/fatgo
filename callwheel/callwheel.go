@@ -25,6 +25,21 @@ type Event struct {
 	ttl int
 }
 
+func CallWheelFactory(s int) CallWheel {
+	c := CallWheel{
+		Size: s,
+		ring: ring.New(s),
+	}
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	// initialise linked lists
+	for i := c.ring.Len(); i > 0; i-- {
+		c.ring.Value = list.New()
+		c.ring = re.ring.Next()
+	}
+	return c
+}
+
 func (re *CallWheel) Begin() {
 	re.mutex.Lock()
 	defer re.mutex.Unlock()
