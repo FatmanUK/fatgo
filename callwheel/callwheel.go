@@ -25,24 +25,14 @@ type Event struct {
 	ttl int
 }
 
-func CallWheelFactory(s int) CallWheel {
-	c := CallWheel{
+// Go mutexes must never be copied as defer unlock can affect the
+// local copy instead of the returned copy.
+func CallWheelFactory(s int) *CallWheel {
+	re := CallWheel{
 		Size: s,
 		ring: ring.New(s),
 	}
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-	// initialise linked lists
-	for i := c.ring.Len(); i > 0; i-- {
-		c.ring.Value = list.New()
-		c.ring = c.ring.Next()
-	}
-	return c
-}
-
-func (re *CallWheel) Begin() {
-	re.mutex.Lock()
-	defer re.mutex.Unlock()
+	// No need to lock mutex while still in the Factory.
 	// create ring (size) of list
 	re.ring = ring.New(re.Size)
 	// initialise linked lists
@@ -50,14 +40,10 @@ func (re *CallWheel) Begin() {
 		re.ring.Value = list.New()
 		re.ring = re.ring.Next()
 	}
+	return &re
 }
 
-func (re *CallWheel) End() {
-	//re.mutex.Lock()
-	//defer re.mutex.Unlock()
-}
-
-// ticks can be seconds or minutes or whatever --- we don't care
+// ticks can be seconds or minutes or whatever --- up to the caller
 func (re *CallWheel) Tick() {
 	re.mutex.Lock()
 	defer re.mutex.Unlock()
@@ -66,15 +52,12 @@ func (re *CallWheel) Tick() {
 	thisList := re.ring.Value.(*list.List)
 	for e := thisList.Front(); e != nil; e = e.Next() {
 		thisEvent := e.Value.(*Event)
-		// decrement the ttl
-		//fmt.Println("B: %d", thisEvent.ttl)
 		thisEvent.ttl = thisEvent.ttl - 1
-		//fmt.Println("A: %d", thisEvent.ttl)
 		if thisEvent.ttl == 0 {
 			go thisEvent.fn()
 		}
 	}
-	// TODO: garbage collect all ttl <= 0
+	// TODO: garbage collect all list events where ttl <= 0
 }
 
 func (re *CallWheel) Insert(num_ticks int, fn TimedOperation) {
@@ -82,7 +65,6 @@ func (re *CallWheel) Insert(num_ticks int, fn TimedOperation) {
 	defer re.mutex.Unlock()
 	ttl := (num_ticks / re.Size) + 1 // ttl of the timer
 	index := num_ticks % re.Size // relative ring index
-	//fmt.Println("Inserting at", index, "+", (re.size * ttl))
 	e := &Event{fn: fn, ttl: ttl}
 	for n := index; n > 0; n-- {
 		re.ring = re.ring.Next()
