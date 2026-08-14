@@ -5,8 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"xlha" // Adjust the import path to match your Go module layout
+	"github.com/FatmanUK/fatgo/xlha"
 )
 
 // Test files:

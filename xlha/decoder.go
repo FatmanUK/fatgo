@@ -7,7 +7,8 @@ import (
 )
 
 const (
-	// LH5 uses an 8KB sliding window for its dictionary
+	// LH5 uses an 8KB (2^13) sliding window for its dictionary (DICBIT=13
+	// per the original Okumura ar002/lzhuf reference implementation)
 	windowSize = 8192
 )
 
@@ -18,7 +19,7 @@ const (
 // BitReader allows reading an arbitrary number of bits from a byte stream.
 type BitReader struct {
 	r    io.ByteReader
-	bits uint16 // Buffer holding up to 16 bits
+	bits uint32 // UPGRADED: Must be uint32 to prevent truncation during left-shifts
 	n    uint8  // Number of valid bits currently in the buffer
 }
 
@@ -29,16 +30,16 @@ func (b *BitReader) ReadBits(count uint8) (uint16, error) {
 		if err != nil {
 			return 0, err
 		}
-		// LHA packs bits starting from the most significant bit
-		b.bits = (b.bits << 8) | uint16(nextByte)
+		// Safely shift without dropping the most significant bits
+		b.bits = (b.bits << 8) | uint32(nextByte)
 		b.n += 8
 	}
 
-	// Extract the requested bits
-	res := b.bits >> (b.n - count)
+	// Extract the requested bits and downcast to uint16
+	res := uint16(b.bits >> (b.n - count))
 
 	// Create a mask to clear the bits we just read
-	mask := (uint16(1) << (b.n - count)) - 1
+	mask := (uint32(1) << (b.n - count)) - 1
 	b.bits &= mask
 	b.n -= count
 
@@ -66,19 +67,27 @@ func newHuffmanTree(numSymbols uint16) *huffmanTree {
 	}
 }
 
-// buildTree reconstructs the Huffman tree from an array of code lengths.
+// buildTree constructs a canonical Huffman tree.
 func (t *huffmanTree) buildTree(lengths []uint8) error {
 	numSymbols := uint16(len(lengths))
 
-	count := make([]uint16, 17)
-	for _, length := range lengths {
-		if length > 16 {
-			return errors.New("invalid Huffman code length")
-		}
-		count[length]++
+	// Reset the tree state
+	for i := range t.left {
+		t.left[i] = 0
+		t.right[i] = 0
 	}
 
-	startCode := make([]uint16, 17)
+	// 1. Count the number of symbols for each bit length (1-16)
+	var count [17]uint16
+	for _, l := range lengths {
+		if l > 16 {
+			return errors.New("invalid bit length")
+		}
+		count[l]++
+	}
+
+	// 2. Calculate the starting code for each bit length
+	var startCode [17]uint16
 	code := uint16(0)
 	for i := uint8(1); i <= 16; i++ {
 		startCode[i] = code
@@ -86,26 +95,20 @@ func (t *huffmanTree) buildTree(lengths []uint8) error {
 		code <<= 1
 	}
 
-	nextNode := uint16(1) // Node 0 is the root
-
-	for i := range t.left {
-		t.left[i] = 0
-		t.right[i] = 0
-	}
-
+	// 3. Assign codes and build the trie
+	nextNode := uint16(1)
 	for symbol := uint16(0); symbol < numSymbols; symbol++ {
 		length := lengths[symbol]
 		if length == 0 {
 			continue
 		}
 
-		currentCode := startCode[length]
-		startCode[length]++
+		code := startCode[length]
+		startCode[length]++ // Increment for the next symbol of this length
 
 		node := uint16(0)
-
-		for bitPos := length; bitPos > 0; bitPos-- {
-			bit := (currentCode >> (bitPos - 1)) & 1
+		for i := uint8(0); i < length; i++ {
+			bit := (code >> (length - 1 - i)) & 1
 
 			if bit == 0 {
 				if t.left[node] == 0 {
@@ -122,8 +125,9 @@ func (t *huffmanTree) buildTree(lengths []uint8) error {
 			}
 		}
 
+		// At the leaf: mark as leaf and store the symbol
 		t.left[node] = symbol
-		t.right[node] = 0xFFFF // Marker for leaf node
+		t.right[node] = 0xFFFF // Marker for leaf
 	}
 
 	return nil
@@ -188,7 +192,7 @@ func NewLH5Decoder(r io.Reader, originalSize uint32) io.Reader {
 		br:        &BitReader{r: br},
 		remaining: originalSize,
 		ncTree:    newHuffmanTree(510), // -lh5- uses max 510 symbols for literals/lengths
-		npTree:    newHuffmanTree(40),  // -lh5- uses max 40 symbols for offsets
+		npTree:    newHuffmanTree(14),  // -lh5- offset tree: NP = DICBIT(13) + 1 = 14 symbols
 	}
 }
 
@@ -214,56 +218,54 @@ func (d *lh5Decoder) readPtLen(nn uint16, nbit uint8, iSpecial int) (*huffmanTre
 		return nil, err
 	}
 
-	lengths := make([]uint8, nn)
-
 	if numSymbols == 0 {
-		// Single active symbol edge-case
 		singleSymbol, err := d.br.ReadBits(nbit)
 		if err != nil {
 			return nil, err
 		}
-		if singleSymbol < nn {
-			lengths[singleSymbol] = 0
+
+		tree := newHuffmanTree(nn)
+		// Map the root directly to the symbol, bypassing the bit stream
+		tree.left[0] = singleSymbol
+		tree.right[0] = 0xFFFF // Marker for leaf node
+		return tree, nil
+	}
+
+	lengths := make([]uint8, nn)
+	i := uint16(0)
+	for i < numSymbols && i < nn {
+		val, err := d.br.ReadBits(3)
+		if err != nil {
+			return nil, err
 		}
-	} else {
-		i := uint16(0)
-		for i < numSymbols && i < nn {
-			// Read the base 3 bits
-			val, err := d.br.ReadBits(3)
+
+		c := uint8(val)
+
+		if c == 7 {
+			for {
+				bit, err := d.br.ReadBits(1)
+				if err != nil {
+					return nil, err
+				}
+				if bit == 0 {
+					break
+				}
+				c++
+			}
+		}
+
+		lengths[i] = c
+		i++
+
+		if iSpecial >= 0 && int(i) == iSpecial {
+			skipBits, err := d.br.ReadBits(2)
 			if err != nil {
 				return nil, err
 			}
 
-			c := uint8(val)
-
-			// Switch to unary counting if max value (7) is hit
-			if c == 7 {
-				for {
-					bit, err := d.br.ReadBits(1)
-					if err != nil {
-						return nil, err
-					}
-					if bit == 0 {
-						break
-					}
-					c++
-				}
-			}
-
-			lengths[i] = c
-			i++
-
-			// Handle the LHA skip code if this tree uses it
-			if iSpecial >= 0 && int(i) == iSpecial {
-				skipBits, err := d.br.ReadBits(2)
-				if err != nil {
-					return nil, err
-				}
-
-				for j := uint16(0); j < skipBits && i < nn; j++ {
-					lengths[i] = 0
-					i++
-				}
+			for j := uint16(0); j < skipBits && i < nn; j++ {
+				lengths[i] = 0
+				i++
 			}
 		}
 	}
@@ -280,54 +282,51 @@ func (d *lh5Decoder) readCLen(ptTree *huffmanTree) (*huffmanTree, error) {
 		return nil, err
 	}
 
-	lengths := make([]uint8, 510)
-
 	if numNC == 0 {
-		// Handle empty tree
 		singleSymbol, err := d.br.ReadBits(9)
 		if err != nil {
 			return nil, err
 		}
-		if singleSymbol < 510 {
-			lengths[singleSymbol] = 0
+
+		tree := newHuffmanTree(510)
+		tree.left[0] = singleSymbol
+		tree.right[0] = 0xFFFF // Marker for leaf node
+		return tree, nil
+	}
+
+	lengths := make([]uint8, 510)
+	i := uint16(0)
+	for i < numNC && i < 510 {
+		c, err := ptTree.readSymbol(d.br)
+		if err != nil {
+			return nil, err
 		}
-	} else {
-		i := uint16(0)
-		for i < numNC && i < 510 {
-			// Ask the Pre-Tree to decode the next symbol
-			c, err := ptTree.readSymbol(d.br)
-			if err != nil {
-				return nil, err
+
+		if c <= 2 {
+			var skipCount uint16
+			if c == 0 {
+				skipCount = 1
+			} else if c == 1 {
+				skipBits, err := d.br.ReadBits(4)
+				if err != nil {
+					return nil, err
+				}
+				skipCount = skipBits + 3
+			} else if c == 2 {
+				skipBits, err := d.br.ReadBits(9)
+				if err != nil {
+					return nil, err
+				}
+				skipCount = skipBits + 20
 			}
 
-			if c <= 2 {
-				// Codes 0, 1, and 2 are special "skip" commands in LHA
-				var skipCount uint16
-				if c == 0 {
-					skipCount = 1
-				} else if c == 1 {
-					skipBits, err := d.br.ReadBits(4)
-					if err != nil {
-						return nil, err
-					}
-					skipCount = skipBits + 3
-				} else if c == 2 {
-					skipBits, err := d.br.ReadBits(9)
-					if err != nil {
-						return nil, err
-					}
-					skipCount = skipBits + 20
-				}
-
-				for j := uint16(0); j < skipCount && i < 510; j++ {
-					lengths[i] = 0
-					i++
-				}
-			} else {
-				// It's an actual length value
-				lengths[i] = uint8(c - 2)
+			for j := uint16(0); j < skipCount && i < 510; j++ {
+				lengths[i] = 0
 				i++
 			}
+		} else {
+			lengths[i] = uint8(c - 2)
+			i++
 		}
 	}
 
@@ -351,7 +350,8 @@ func (d *lh5Decoder) readTrees() error {
 	}
 	d.ncTree = ncTree
 
-	// 3. Read NP (Offset Tree): 14 symbols, 4-bit count, NO special skip (-1)
+	// 3. Read NP (Offset Tree): 14 symbols (NP = DICBIT + 1 = 14), 4-bit count,
+	// NO special skip (-1)
 	npTree, err := d.readPtLen(14, 4, -1)
 	if err != nil {
 		return err
@@ -369,7 +369,6 @@ func (d *lh5Decoder) Read(p []byte) (int, error) {
 
 	written := 0
 
-	// 1. Flush any buffered output from a previous LZSS match
 	if len(d.outBuf) > 0 {
 		n := copy(p, d.outBuf)
 		d.outBuf = d.outBuf[n:]
@@ -377,10 +376,7 @@ func (d *lh5Decoder) Read(p []byte) (int, error) {
 		p = p[n:]
 	}
 
-	// 2. Main decompression loop
 	for len(p) > 0 && d.remaining > 0 {
-
-		// If we finished the previous block, load the next one
 		if d.blockSize == 0 {
 			if err := d.readBlockHeader(); err != nil {
 				return written, err
@@ -388,14 +384,12 @@ func (d *lh5Decoder) Read(p []byte) (int, error) {
 		}
 		d.blockSize--
 
-		// Read the next symbol
 		symbol, err := d.ncTree.readSymbol(d.br)
 		if err != nil {
 			return written, err
 		}
 
 		if symbol < 256 {
-			// Literal byte
 			b := byte(symbol)
 
 			d.ringBuf[d.ringPos] = b
@@ -406,7 +400,6 @@ func (d *lh5Decoder) Read(p []byte) (int, error) {
 			written++
 			d.remaining--
 		} else {
-			// LZSS Match Length & Offset
 			matchLength := int(symbol - 256 + 3)
 
 			offsetIndex, err := d.npTree.readSymbol(d.br)
@@ -423,9 +416,8 @@ func (d *lh5Decoder) Read(p []byte) (int, error) {
 				matchOffset = (1 << (offsetIndex - 1)) + int(extraBits)
 			}
 
-			// Copy the match from the dictionary
 			for i := 0; i < matchLength; i++ {
-				readPos := (d.ringPos - matchOffset - 1 + windowSize) % windowSize
+				readPos := (d.ringPos - matchOffset - 1) & (windowSize - 1)
 				b := d.ringBuf[readPos]
 
 				d.ringBuf[d.ringPos] = b

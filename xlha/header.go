@@ -10,29 +10,24 @@ import (
 )
 
 var (
-	// ErrInvalidHeader indicates the header data is corrupt or not an LHA archive.
 	ErrInvalidHeader = errors.New("invalid LHA header")
 )
 
-// Header represents the extracted metadata for a file within the archive.
 type Header struct {
-	Method         string    // e.g., "-lh5-", "-lh0-"
-	CompressedSize uint32    // Size of the compressed data stream
-	OriginalSize   uint32    // Size of the file when extracted
-	LastModified   time.Time // Converted from MS-DOS timestamp
-	Level          uint8     // Header level (0, 1, or 2)
-	Name           string    // Filename
-	CRC16          uint16    // Expected CRC16 checksum of the uncompressed file
+	Method         string
+	CompressedSize uint32
+	OriginalSize   uint32
+	LastModified   time.Time
+	Level          uint8
+	Name           string
+	CRC16          uint16
 }
 
-// ReadHeader reads and parses an LHA header from the provided stream.
 func ReadHeader(r io.Reader) (*Header, error) {
-	// The first byte of an LHA header is the header size.
-	// A size of 0 indicates the end of the archive.
 	var headerSize uint8
 	if err := binary.Read(r, binary.LittleEndian, &headerSize); err != nil {
 		if err == io.EOF {
-			return nil, io.EOF // End of archive gracefully reached
+			return nil, io.EOF
 		}
 		return nil, fmt.Errorf("failed to read header size: %w", err)
 	}
@@ -41,14 +36,11 @@ func ReadHeader(r io.Reader) (*Header, error) {
 		return nil, io.EOF
 	}
 
-	// Read the rest of the base header into a buffer.
-	// We subtract 1 because we already read the headerSize byte.
 	buf := make([]byte, headerSize-1)
 	if _, err := io.ReadFull(r, buf); err != nil {
 		return nil, fmt.Errorf("failed to read header body: %w", err)
 	}
 
-	// Use bytes.Reader for easy, panic-free sequential reading from our buffer
 	br := bytes.NewReader(buf)
 
 	var checksum uint8
@@ -64,7 +56,6 @@ func ReadHeader(r io.Reader) (*Header, error) {
 	var dosTime uint32
 	var attribute uint8
 
-	// Read the fixed-size numerical fields (Little Endian is standard for LHA)
 	binary.Read(br, binary.LittleEndian, &h.CompressedSize)
 	binary.Read(br, binary.LittleEndian, &h.OriginalSize)
 	binary.Read(br, binary.LittleEndian, &dosTime)
@@ -73,7 +64,6 @@ func ReadHeader(r io.Reader) (*Header, error) {
 
 	h.LastModified = parseDosTime(dosTime)
 
-	// Filename length and filename
 	var nameLen uint8
 	binary.Read(br, binary.LittleEndian, &nameLen)
 
@@ -81,17 +71,39 @@ func ReadHeader(r io.Reader) (*Header, error) {
 	io.ReadFull(br, nameBytes)
 	h.Name = string(nameBytes)
 
-	// Read CRC16
-	binary.Read(br, binary.LittleEndian, &h.CRC16)
+	binary.Read(r, binary.LittleEndian, &h.CRC16)
 
-	// Note: For Level 1 and Level 2 headers, there are "Extended Headers"
-	// that follow. We can add logic to skip or parse those next if needed.
+	// Level 1 and 2 headers append extended metadata blocks (like directory paths).
+	// We MUST skip these to perfectly align the stream with the compressed data.
+	if h.Level == 1 {
+		var osID uint8
+		binary.Read(r, binary.LittleEndian, &osID)
+
+		var extSize uint16
+
+		// The size of the first extended header follows the OS-ID, on the raw stream.
+		if err := binary.Read(r, binary.LittleEndian, &extSize); err == nil {
+
+			// Chain-read and discard extended headers until we hit a 0x0000 terminator
+			for extSize != 0 {
+				if extSize >= 2 {
+					// Discard the extended header data (extSize includes the 2-byte size itself)
+					if _, err := io.CopyN(io.Discard, r, int64(extSize-2)); err != nil {
+						break
+					}
+				}
+
+				// Read the size of the NEXT extended header directly from the raw stream
+				if err := binary.Read(r, binary.LittleEndian, &extSize); err != nil {
+					break
+				}
+			}
+		}
+	}
 
 	return h, nil
 }
 
-// parseDosTime converts a 32-bit MS-DOS timestamp to a Go time.Time object.
-// This replaces the bitwise macros often found in the C implementation.
 func parseDosTime(t uint32) time.Time {
 	date := t >> 16
 	timePart := t & 0xFFFF
@@ -102,7 +114,7 @@ func parseDosTime(t uint32) time.Time {
 
 	hour := int(timePart >> 11)
 	minute := int((timePart >> 5) & 0x3F)
-	second := int((timePart & 0x1F) * 2) // DOS seconds have a 2-second resolution
+	second := int((timePart & 0x1F) * 2)
 
 	return time.Date(year, month, day, hour, minute, second, 0, time.UTC)
 }
